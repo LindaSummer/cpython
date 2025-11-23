@@ -1832,6 +1832,12 @@ _PyObject_GenericGetAttrWithDict(PyObject *obj, PyObject *name,
 
     f = NULL;
     if (descr != NULL) {
+#ifdef Py_GIL_DISABLED
+      if (!_PyObject_HasDeferredRefcount(descr)) {
+        PyUnstable_Object_EnableDeferredRefcount(descr);
+      }
+#endif
+
         f = Py_TYPE(descr)->tp_descr_get;
         if (f != NULL && PyDescr_IsData(descr)) {
             res = f(descr, obj, (PyObject *)Py_TYPE(obj));
@@ -1955,6 +1961,12 @@ _PyObject_GenericSetAttrWithDict(PyObject *obj, PyObject *name,
     descr = PyStackRef_AsPyObjectBorrow(cref.ref);
 
     if (descr != NULL) {
+#ifdef Py_GIL_DISABLED
+      if (!_PyObject_HasDeferredRefcount(descr)) {
+        PyUnstable_Object_EnableDeferredRefcount(descr);
+      }
+#endif
+
         f = Py_TYPE(descr)->tp_descr_set;
         if (f != NULL) {
             res = f(descr, obj, value);
