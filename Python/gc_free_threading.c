@@ -2020,6 +2020,7 @@ gc_should_collect(GCState *gcstate)
         // objects.
         return false;
     }
+    return true;
 }
 
 static void
