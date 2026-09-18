@@ -137,13 +137,23 @@ enum machine_format_code {
 
 #define array_Check(op, state) PyObject_TypeCheck(op, state->ArrayType)
 
+#if defined(Py_GIL_DISABLED)
+#define array_ObExports(obj) _Py_atomic_load_ssize(&(obj)->ob_exports)
+#define array_ObExportsInc(obj) _Py_atomic_add_ssize(&(obj)->ob_exports, 1)
+#define array_ObExportsDec(obj) _Py_atomic_add_ssize(&(obj)->ob_exports, -1)
+#else
+#define array_ObExports(obj) (obj)->ob_exports
+#define array_ObExportsInc(obj) (obj)->ob_exports++
+#define array_ObExportsDec(obj) (obj)->ob_exports--
+#endif
+
 static int
 array_resize(arrayobject *self, Py_ssize_t newsize)
 {
     char *items;
     size_t _new_size;
 
-    if (self->ob_exports > 0 && newsize != Py_SIZE(self)) {
+    if (array_ObExports(self) > 0 && newsize != Py_SIZE(self)) {
         PyErr_SetString(PyExc_BufferError,
             "cannot resize an array that is exporting buffers");
         return -1;
@@ -584,8 +594,8 @@ e_getitem(arrayobject *ap, Py_ssize_t i)
 static int
 e_setitem(arrayobject *ap, Py_ssize_t i, PyObject *v)
 {
-    float x;
-    if (!PyArg_Parse(v, "f;array item must be float", &x)) {
+    double x;
+    if (!PyArg_Parse(v, "d;array item must be float", &x)) {
         return -1;
     }
 
@@ -607,14 +617,16 @@ f_getitem(arrayobject *ap, Py_ssize_t i)
 static int
 f_setitem(arrayobject *ap, Py_ssize_t i, PyObject *v)
 {
-    float x;
-    if (!PyArg_Parse(v, "f;array item must be float", &x))
+    double x;
+    if (!PyArg_Parse(v, "d;array item must be float", &x))
         return -1;
 
     CHECK_ARRAY_BOUNDS(ap, i);
 
-    if (i >= 0)
-                 ((float *)ap->ob_item)[i] = x;
+    if (i >= 0) {
+        return PyFloat_Pack4(x, ap->ob_item + sizeof(float)*i,
+                             PY_LITTLE_ENDIAN);
+    }
     return 0;
 }
 
@@ -651,7 +663,6 @@ static int
 cf_setitem(arrayobject *ap, Py_ssize_t i, PyObject *v)
 {
     Py_complex x;
-    float f[2];
 
     if (!PyArg_Parse(v, "D;array item must be complex", &x)) {
         return -1;
@@ -659,10 +670,18 @@ cf_setitem(arrayobject *ap, Py_ssize_t i, PyObject *v)
 
     CHECK_ARRAY_BOUNDS(ap, i);
 
-    f[0] = (float)x.real;
-    f[1] = (float)x.imag;
     if (i >= 0) {
-        memcpy(ap->ob_item + i*sizeof(f), &f, sizeof(f));
+        char f[8];
+        int ret = PyFloat_Pack4(x.real, f, PY_LITTLE_ENDIAN);
+
+        if (ret) {
+            return ret;
+        }
+        ret = PyFloat_Pack4(x.imag, f + sizeof(float), PY_LITTLE_ENDIAN);
+        if (!ret) {
+            memcpy(ap->ob_item + i*sizeof(f), &f, sizeof(f));
+        }
+        return ret;
     }
     return 0;
 }
@@ -1145,7 +1164,7 @@ array_del_slice(arrayobject *a, Py_ssize_t ilow, Py_ssize_t ihigh)
     /* Issue #4509: If the array has exported buffers and the slice
        assignment would change the size of the array, fail early to make
        sure we don't modify it. */
-    if (d != 0 && a->ob_exports > 0) {
+    if (d != 0 && array_ObExports(a) > 0) {
         PyErr_SetString(PyExc_BufferError,
             "cannot resize an array that is exporting buffers");
         return -1;
@@ -2796,7 +2815,7 @@ array_ass_subscr(PyObject *op, PyObject *item, PyObject *value)
     /* Issue #4509: If the array has exported buffers and the slice
        assignment would change the size of the array, fail early to make
        sure we don't modify it. */
-    if ((needed == 0 || slicelength != needed) && self->ob_exports > 0) {
+    if ((needed == 0 || slicelength != needed) && array_ObExports(self) > 0) {
         PyErr_SetString(PyExc_BufferError,
             "cannot resize an array that is exporting buffers");
         return -1;
@@ -2910,7 +2929,7 @@ array_buffer_getbuf(PyObject *op, Py_buffer *view, int flags)
         view->format = (char *)self->ob_descr->typecode;
     }
 
-    self->ob_exports++;
+    array_ObExportsInc(self);
     return 0;
 }
 
@@ -2918,7 +2937,7 @@ static void
 array_buffer_relbuf(PyObject *op, Py_buffer *Py_UNUSED(view))
 {
     arrayobject *self = arrayobject_CAST(op);
-    self->ob_exports--;
+    array_ObExportsDec(self);
 }
 
 static PyObject *
