@@ -3464,8 +3464,8 @@ array_new_internal_lock_held(PyTypeObject *type, PyObject *initial, const char *
                         PyErr_NoMemory();
                         return NULL;
                     }
-                    memcpy(self->data->items, (char *)ustr, n * sizeof(Py_UCS4));
-                    PyMem_Free(ustr);
+                memcpy(self->data->items, (char *)ustr, n * sizeof(Py_UCS4));
+                PyMem_Free(ustr);
                 Py_SET_SIZE(self, n);
             }
             else if (initial != NULL && array_Check(initial, state) && len > 0) {
@@ -3515,7 +3515,7 @@ array_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
         return NULL;
     }
 
-    if (!PyArg_ParseTuple(args, "s|O:array", &s, &initial))
+    if (!PyArg_ParseTuple(args, "s|O:array", &s, &initial)) {
         return NULL;
     }
 
@@ -3545,11 +3545,11 @@ array_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     PyObject *ret;
 
     if (initial == NULL) {
-        ret = array_new_internal_lock_held(type, initial, c);
+        ret = array_new_internal_lock_held(type, initial, s);
     }
     else {
         Py_BEGIN_CRITICAL_SECTION(initial);
-        ret = array_new_internal_lock_held(type, initial, c);
+        ret = array_new_internal_lock_held(type, initial, s);
         Py_END_CRITICAL_SECTION();
     }
 
